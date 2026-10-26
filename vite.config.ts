@@ -47,5 +47,6 @@ export default defineConfig({
   base: "./",
   plugins: [react(), tailwindcss(), head()],
   build: { target: "es2023", chunkSizeWarningLimit: 2000 },
-  preview: { port: 4173, strictPort: true },
+  // Its own port, so a preview from another project is never mistaken for this one.
+  preview: { port: 4317, strictPort: true },
 });

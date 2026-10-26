@@ -6,14 +6,17 @@
  */
 import { type LlmSettings, transcribe, transcriptionProblem } from "llm-connect";
 import { aiError } from "./call";
-import { acceptsAudio } from "./settings";
+import { capabilitiesOf } from "./settings";
 
 export type VoiceRoute = "audio" | "transcribe";
 
-/** How the recording reaches the model, or null when this model and provider take no voice. */
+/**
+ * How the recording reaches the model, or null when this model and provider take no voice.
+ * llm-connect's `audio` capability says both that the model hears and that its SDK sends audio.
+ */
 export function voiceRoute(
   settings: LlmSettings,
-  hearsAudio = acceptsAudio(settings),
+  hearsAudio = capabilitiesOf(settings).audio,
 ): VoiceRoute | null {
   if (hearsAudio) return "audio";
   return transcriptionProblem(settings) ? null : "transcribe";

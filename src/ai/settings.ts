@@ -56,22 +56,6 @@ export function capabilitiesOf(settings: LlmSettings) {
   return unknown && !caps.vision ? { ...caps, vision: true } : caps;
 }
 
-/** The SDKs that send a recording inside a chat message (Gemini; OpenRouter and the like). */
-const AUDIO_KINDS = new Set(["google", "openai-compatible"]);
-
-/**
- * A recording can go straight to the model: the catalog says it hears audio,
- * and its SDK sends audio in a chat message. Custom endpoints are unknown, so no.
- */
-export function acceptsAudio(settings: LlmSettings): boolean {
-  const entry = catalogModel(settings) as (SlimModel & { input?: string[] }) | undefined;
-  return (
-    !settings.customEndpoint &&
-    AUDIO_KINDS.has(providerKindOf(settings)) &&
-    (entry?.input?.includes("audio") ?? false)
-  );
-}
-
 export function modelLabel(settings: LlmSettings | null): string {
   if (!settings) return "No model";
   if (settings.customEndpoint) return settings.customModel || "Custom endpoint";

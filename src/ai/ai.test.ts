@@ -95,13 +95,23 @@ describe("analyzeMeal", () => {
   test("sends a voice recording to the model as an audio file part", async () => {
     const model = answering({ ...meal, heard: "deux oeufs et une tartine" });
     const out = await analyzeMeal(
-      { settings, model, capabilities: vision },
+      { settings, model, capabilities: { ...vision, audio: true } },
       { audio: { data: encodeWav(new Float32Array(160), 16_000), mediaType: "audio/wav" } },
     );
     const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
     expect(prompt).toContain("audio/wav");
     expect(prompt).toContain("voice recording");
     expect(out.heard).toBe("deux oeufs et une tartine");
+  });
+
+  test("refuses a recording for a model that does not hear, before any request", async () => {
+    const model = answering(meal);
+    const run = analyzeMeal(
+      { settings, model, capabilities: vision },
+      { audio: { data: encodeWav(new Float32Array(160), 16_000), mediaType: "audio/wav" } },
+    );
+    await expect(run).rejects.toBeInstanceOf(AiError);
+    expect(model.doGenerateCalls).toHaveLength(0);
   });
 
   test("refuses a photo for a model without vision, before any request", async () => {
