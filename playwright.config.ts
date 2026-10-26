@@ -7,12 +7,12 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://localhost:4173/",
+    baseURL: "http://localhost:4317/",
     trace: "retain-on-failure",
   },
   webServer: {
     command: "bunx vite preview",
-    url: "http://localhost:4173/",
+    url: "http://localhost:4317/",
     reuseExistingServer: !process.env.CI,
   },
   projects: [

@@ -24,8 +24,8 @@
     "@ai-sdk/openai-compatible": "3.0.77",
     "ai": "7.0.152",
     "idb": "8.0.4",
-    "llm-connect": "2.4.1",
-    "llm-models": "1.13.0",
+    "llm-connect": "2.5.0",
+    "llm-models": "1.14.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "zod": "4.6.7"
