@@ -24,6 +24,9 @@ const ICONS = {
   stop: "M7 7h10v10H7z",
   close: "M6 6l12 12M18 6 6 18",
   send: "M4 12 20 4l-4 16-4-7-8-1Z",
+  copy: "M9 9h11v11H9zM15 9V4H4v11h5",
+  check: "m5 12 5 5L20 7",
+  retry: "M20 12a8 8 0 1 1-2.3-5.7L20 8.6M20 3v5.6h-5.6",
 } as const;
 
 export type IconName = keyof typeof ICONS;

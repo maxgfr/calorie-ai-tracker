@@ -9,6 +9,7 @@ import {
   callOptions,
   callProblem,
   describeError,
+  type LlmErrorCode,
   type LlmSettings,
   loadModel,
 } from "llm-connect";
@@ -33,17 +34,29 @@ export class AiError extends Error {
   }
 }
 
-/** A readable error for any failed call, with a hint for key and network failures. */
+/** What each kind of failure means for the user, ahead of the provider's own words. */
+const FAILURES: Record<LlmErrorCode, string> = {
+  auth: "The provider refused the key. Check it in Settings.",
+  "auth-or-network":
+    "No answer from the provider: the key was refused, or the network or the provider's CORS policy blocked the request.",
+  "rate-limit": "Too many requests for now: wait a moment.",
+  overloaded: "The provider is overloaded right now.",
+  "context-length": "This is more than the model can read at once.",
+  "invalid-request": "The provider refused the request.",
+  "not-found": "The provider does not know this model. Pick another one in Settings.",
+  server: "The provider ran into an error.",
+  unknown: "The model call failed.",
+};
+
+/** A readable error for any failed call: what it means, then the provider's message. */
 export function aiError(err: unknown, settings: LlmSettings): AiError {
   if (err instanceof AiError) return err;
   const e = describeError(err, settings.apiKey);
-  const hint =
-    e.code === "auth"
-      ? " Check the key in Settings."
-      : e.code === "auth-or-network"
-        ? " The key was refused, or the network or the provider's CORS policy blocked the request."
-        : "";
-  return new AiError(`${e.message || "The model call failed."}${hint}`, e.retryable);
+  const detail = e.message.trim();
+  return new AiError(
+    detail ? `${FAILURES[e.code]} (${detail.replace(/\.$/, "")}.)` : FAILURES[e.code],
+    e.retryable,
+  );
 }
 
 export function hasImage(messages: ModelMessage[]): boolean {

@@ -242,21 +242,78 @@ async function streamingCoach(page: Page, answer: string) {
 test("the coach works with a model connected, and Back goes through the tabs", async ({ page }) => {
   const errors: string[] = [];
   await offline(page, errors);
-  await streamingCoach(page, "You did great this week.");
+  await streamingCoach(
+    page,
+    [
+      "You did **great** this week.",
+      "",
+      "- Protein on target",
+      "- Fewer snacks",
+      "",
+      "| Day | kcal |",
+      "| --- | ---: |",
+      "| Mon | 1950 |",
+      "",
+      "<script>alert(1)</script> ![x](https://example.com/x.png)",
+    ].join("\n"),
+  );
   await connectModel(page);
   const nav = page.getByRole("navigation", { name: "Main" }).first();
 
   await nav.getByRole("link", { name: "Today" }).click();
   await nav.getByRole("link", { name: "Coach" }).click();
   await page.getByRole("button", { name: "How did I do this week?" }).click();
-  await expect(page.getByText("You did great this week.")).toBeVisible();
+  // The answer is rendered from Markdown, without raw HTML or images.
+  const answer = page.locator(".markdown");
+  await expect(answer.locator("strong")).toHaveText("great");
+  await expect(answer.getByRole("listitem")).toHaveText(["Protein on target", "Fewer snacks"]);
+  await expect(answer.getByRole("cell", { name: "1950" })).toBeVisible();
+  await expect(answer.locator("script, img")).toHaveCount(0);
 
   await nav.getByRole("link", { name: "Week" }).click();
   await expect(page.getByRole("heading", { name: "This week" })).toBeVisible();
   await page.goBack();
-  await expect(page.getByText("You did great this week.")).toBeVisible();
+  await expect(answer.locator("strong")).toHaveText("great");
   await page.goBack();
   await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("the coach offers to try again after a failure, and asks before clearing", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  await offline(page, errors);
+  await streamingCoach(page, "Lentils and eggs.");
+  // Added last, so checked first: the first question fails, its own retry included.
+  let failures = 2;
+  await page.route(`${ENDPOINT}/chat/completions`, (route) => {
+    if (failures === 0) return route.fallback();
+    failures--;
+    return route.fulfill({
+      status: 500,
+      headers: { "access-control-allow-origin": "*" },
+      json: { error: { message: "upstream down" } },
+    });
+  });
+  await connectModel(page);
+  await page.goto("./#/coach");
+
+  const message = page.getByLabel("Message");
+  await message.fill("Dinner idea?");
+  await message.press("Enter");
+  await expect(page.getByText(/The provider ran into an error/)).toBeVisible();
+  await page.getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByText("Lentils and eggs.")).toBeVisible();
+  await expect(page.getByText("Dinner idea?")).toHaveCount(1);
+
+  await page.getByRole("button", { name: "Clear" }).click();
+  await expect(page.getByText("Clear the conversation?")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("Lentils and eggs.")).toBeVisible();
+  await page.getByRole("button", { name: "Clear" }).click();
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(page.getByRole("button", { name: "How did I do this week?" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

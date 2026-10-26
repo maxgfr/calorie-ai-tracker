@@ -75,11 +75,15 @@ export interface Goals extends Nutrients {
   rationale?: string;
 }
 
+/** How an answer ended when it did not end on its own: stopped, cut at the length limit… */
+export type AnswerEnd = "stopped" | "length" | "truncated" | "refusal" | "content-filter";
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
   time: number;
+  end?: AnswerEnd;
 }
 
 export const DEFAULT_PROFILE: Profile = {

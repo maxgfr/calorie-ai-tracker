@@ -1,9 +1,17 @@
 /** The coach: a conversation grounded in the profile, the goals and the week's meals. */
 import { type ModelMessage, streamText } from "ai";
-import { callOptions, languageName, loadModel } from "llm-connect";
+import {
+  callOptions,
+  languageName,
+  loadModel,
+  providerKindOf,
+  type StopReason,
+  stopReasonOf,
+} from "llm-connect";
 import { formatDay } from "../data/dates";
 import {
   ACTIVITIES,
+  type AnswerEnd,
   type ChatMessage,
   type Entry,
   type Goals,
@@ -11,7 +19,7 @@ import {
   type Profile,
 } from "../data/model";
 import { entryTotals, type WeekSummary } from "../data/stats";
-import { aiError, type CallContext, preflight } from "./call";
+import { AiError, aiError, type CallContext, preflight } from "./call";
 
 /** Earlier turns sent with each question, at most. */
 const HISTORY = 20;
@@ -61,17 +69,35 @@ export function toMessages(history: ChatMessage[]): ModelMessage[] {
   return history.slice(-HISTORY).map((m) => ({ role: m.role, content: m.text }));
 }
 
-/** Streams the coach's answer to the last user message; resolves with the whole text. */
+export interface CoachAnswer {
+  text: string;
+  /** Set when the answer did not end on its own. */
+  end?: AnswerEnd;
+}
+
+const UNFINISHED: Partial<Record<StopReason, AnswerEnd>> = {
+  length: "length",
+  truncated: "truncated",
+  refusal: "refusal",
+  "content-filter": "content-filter",
+};
+
+/**
+ * Streams the coach's answer to the last user message; resolves with the whole
+ * text and how it ended. Stopped halfway, the answer keeps what came.
+ */
 export async function coachReply(
   ctx: CallContext,
   context: CoachContext,
   history: ChatMessage[],
   onText: (text: string) => void,
-): Promise<string> {
+): Promise<CoachAnswer> {
   const messages = toMessages(history);
   const capabilities = preflight(ctx, messages);
   let text = "";
   let failure: unknown = null;
+  // A stream that closes without a finish event was cut.
+  let end: AnswerEnd | undefined = "truncated";
   try {
     const result = streamText({
       model: ctx.model ?? (await loadModel(ctx.settings)),
@@ -80,11 +106,20 @@ export async function coachReply(
       maxRetries: 1,
       ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
       ...callOptions(ctx.settings, { capabilities }),
+      // Errors come through the stream below; the default would also log them.
+      onError: () => {},
     });
     for await (const part of result.fullStream) {
       if (part.type === "text-delta") {
         text += part.text;
         onText(text);
+      } else if (part.type === "finish") {
+        const stop = stopReasonOf(
+          providerKindOf(ctx.settings),
+          part.finishReason,
+          part.rawFinishReason,
+        );
+        end = UNFINISHED[stop];
       } else if (part.type === "error") {
         failure = part.error;
       }
@@ -92,10 +127,18 @@ export async function coachReply(
   } catch (err) {
     failure = err;
   }
-  if (failure) {
-    if (ctx.signal?.aborted) throw new DOMException("Cancelled", "AbortError");
-    throw aiError(failure, ctx.settings);
+  if (ctx.signal?.aborted) {
+    if (text.trim()) return { text, end: "stopped" };
+    throw new DOMException("Cancelled", "AbortError");
   }
-  if (!text.trim()) throw aiError(new Error("The model sent an empty answer."), ctx.settings);
-  return text;
+  if (failure) throw aiError(failure, ctx.settings);
+  if (!text.trim()) {
+    throw new AiError(
+      end === "refusal" || end === "content-filter"
+        ? "The model declined to answer. Try asking in other words."
+        : "The model sent an empty answer.",
+      true,
+    );
+  }
+  return end ? { text, end } : { text };
 }

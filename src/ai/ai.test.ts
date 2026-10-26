@@ -3,7 +3,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { type LlmSettings, resolveCapabilities } from "llm-connect";
 import { baselineGoals } from "../data/energy";
 import { DEFAULT_PROFILE } from "../data/model";
-import { AiError } from "./call";
+import { AiError, aiError } from "./call";
 import { coachInstructions, coachReply } from "./coach";
 import { suggestGoals } from "./goals";
 import { analyzeMeal, mealText } from "./meal";
@@ -175,37 +175,86 @@ describe("coach", () => {
     expect(s).toContain("French");
   });
 
-  test("streams the answer", async () => {
-    const model = new MockLanguageModelV4({
+  /** A model streaming `words`, then finishing for `finish` (none: the stream is cut). */
+  function streaming(words: string[], finish?: "stop" | "length", signal?: AbortController) {
+    return new MockLanguageModelV4({
       doStream: async () => ({
         stream: new ReadableStream({
-          start(c) {
+          async start(c) {
             c.enqueue({ type: "text-start", id: "1" });
-            c.enqueue({ type: "text-delta", id: "1", delta: "Mange " });
-            c.enqueue({ type: "text-delta", id: "1", delta: "des lentilles." });
+            for (const delta of words) c.enqueue({ type: "text-delta", id: "1", delta });
+            if (signal) {
+              // The user stops once the first words are on screen.
+              setTimeout(() => signal.abort(), 20);
+              return;
+            }
             c.enqueue({ type: "text-end", id: "1" });
-            c.enqueue({
-              type: "finish",
-              finishReason: { unified: "stop", raw: "stop" },
-              usage: {
-                inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
-                outputTokens: { total: 1, text: 1, reasoning: 0 },
-              },
-            });
+            if (finish) {
+              c.enqueue({
+                type: "finish",
+                finishReason: { unified: finish, raw: finish },
+                usage: {
+                  inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                  outputTokens: { total: 1, text: 1, reasoning: 0 },
+                },
+              });
+            }
             c.close();
           },
         }),
       }),
     });
+  }
+  const question = [{ id: "q", role: "user" as const, text: "Une idée ?", time: 0 }];
+
+  test("streams the answer", async () => {
+    const model = streaming(["Mange ", "des lentilles."], "stop");
     const seen: string[] = [];
-    const text = await coachReply(
+    const answer = await coachReply(
       { settings, model, capabilities: vision },
       context,
-      [{ id: "q", role: "user", text: "Une idée ?", time: 0 }],
+      question,
       (t) => seen.push(t),
     );
-    expect(text).toBe("Mange des lentilles.");
-    expect(seen.at(-1)).toBe(text);
+    expect(answer).toEqual({ text: "Mange des lentilles." });
+    expect(seen.at(-1)).toBe(answer.text);
+  });
+
+  test("says when the answer was cut, at the length limit or by a closed stream", async () => {
+    const at = (model: MockLanguageModelV4) =>
+      coachReply({ settings, model, capabilities: vision }, context, question, () => {});
+    expect(await at(streaming(["Mange "], "length"))).toEqual({ text: "Mange ", end: "length" });
+    expect(await at(streaming(["Mange "]))).toEqual({ text: "Mange ", end: "truncated" });
+  });
+
+  test("stopped halfway, keeps what came", async () => {
+    const stop = new AbortController();
+    const answer = await coachReply(
+      {
+        settings,
+        model: streaming(["Mange "], "stop", stop),
+        capabilities: vision,
+        signal: stop.signal,
+      },
+      context,
+      question,
+      () => {},
+    );
+    expect(answer).toEqual({ text: "Mange ", end: "stopped" });
+  });
+});
+
+describe("errors", () => {
+  test("say what a failure means, then the provider's words, never the key", () => {
+    const limited = Object.assign(new Error("Slow down sk-test-123456"), {
+      name: "AI_APICallError",
+      statusCode: 429,
+      isRetryable: true,
+    });
+    const e = aiError(limited, settings);
+    expect(e.message).toStartWith("Too many requests for now");
+    expect(e.message).not.toContain("sk-test-123456");
+    expect(e.retryable).toBe(true);
   });
 });
 
