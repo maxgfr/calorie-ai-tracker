@@ -53,8 +53,13 @@ export function href(route: Route): string {
   }
 }
 
-export function go(route: Route): void {
-  location.hash = href(route);
+/**
+ * `replace` takes the place of the current page in the history, for a form that
+ * is done (a saved or deleted meal): Back then skips it.
+ */
+export function go(route: Route, { replace = false } = {}): void {
+  if (replace) location.replace(href(route));
+  else location.hash = href(route);
 }
 
 export function useRoute(): Route {

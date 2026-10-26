@@ -170,7 +170,7 @@ export function Log({ date }: { date?: string | undefined }) {
       ...(d.notes ? { notes: d.notes } : {}),
       ...(source === "photo" && photo ? { photo: photo.thumbnail } : {}),
     });
-    go({ name: "day", ...(d.date !== dayKey() ? { date: d.date } : {}) });
+    go({ name: "day", ...(d.date !== dayKey() ? { date: d.date } : {}) }, { replace: true });
   }
 
   if (!settings) {

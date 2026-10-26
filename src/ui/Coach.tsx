@@ -17,7 +17,7 @@ const STARTERS = [
 ];
 
 export function Coach({ ask }: { ask?: string | undefined }) {
-  const { entries, profile, goals, settings } = useApp();
+  const { entries, profile, goals, settings, revision } = useApp();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState<string | null>(null);
@@ -35,16 +35,23 @@ export function Coach({ ask }: { ask?: string | undefined }) {
     return { profile, goals, week, today, entries: inWeek, streak: streak(entries, today) };
   }, [entries, profile, goals, today]);
 
+  // Read again after a sync brings messages from another device.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read on each sync
   useEffect(() => {
     void db
       .chatHistory()
       .then(setMessages)
       .finally(() => setLoaded(true));
-    return () => abort.current?.abort();
-  }, []);
+  }, [revision]);
 
+  useEffect(() => () => abort.current?.abort(), []);
+
+  // A block body: scrollIntoView returns a promise in recent browsers, which React would take
+  // for the effect's cleanup and call on the next render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: follow each new message and streamed word
-  useEffect(() => end.current?.scrollIntoView({ block: "end" }), [messages, streaming]);
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: "end" });
+  }, [messages, streaming]);
 
   async function send(text: string) {
     if (!settings || !text.trim() || streaming !== null) return;

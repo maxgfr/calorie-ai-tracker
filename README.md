@@ -39,15 +39,24 @@ no server: your meals stay in your browser.
    and explains its numbers. Every number stays editable.
 6. **Coach**: a streamed chat grounded in your goals, your week day by day and every meal logged
    this week, in the language you pick.
+7. **Sync with GitHub** (optional): your data as one JSON file in a repository of yours, so every
+   device you use has it. Create a private repository and a
+   [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to it
+   with Contents: read and write, then enter both in Settings. The app syncs on start, a moment
+   after each change and when you come back to it. Each device merges before it writes: meals
+   and messages are joined, the latest edit of a meal wins, a deleted meal stays deleted, the
+   latest profile and goals win.
 
 ## Privacy
 
 - Meals, photos (as small thumbnails), profile, goals and the coach conversation live in
-  IndexedDB, in your browser only. One button deletes them all.
+  IndexedDB, in your browser. One button deletes them all from this device.
 - The API key is encrypted at rest under a non-extractable WebCrypto key (llm-connect's
-  `secureStorage`), and kept for the tab only unless you choose to remember it.
+  `secureStorage`), and kept for the tab only unless you choose to remember it. The GitHub token
+  is encrypted the same way.
 - The only things sent anywhere are your meal descriptions, photos, recordings and coach
-  questions, to the AI provider you chose. Nothing is analysed on the device.
+  questions, to the AI provider you chose, and, when you turn sync on, your data to your GitHub
+  repository. Nothing is analysed on the device.
 - The page's Content-Security-Policy allows no inline script and no third-party script. It can
   connect only to `https:` APIs (your provider, the model catalog) and to local model servers.
 

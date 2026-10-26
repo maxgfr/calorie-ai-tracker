@@ -36,6 +36,8 @@ export interface Entry {
   notes?: string;
   /** A small JPEG of the photo, when there was one. */
   photo?: Blob;
+  /** Epoch ms of the last edit, so the latest one wins when syncing. */
+  updated?: number;
 }
 
 export const SEXES = ["female", "male"] as const;

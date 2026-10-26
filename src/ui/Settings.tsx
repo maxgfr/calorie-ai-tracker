@@ -1,9 +1,10 @@
-/** Your model (llm-connect's settings store) and your data. */
+/** Your model (llm-connect's settings store), the sync with GitHub and your data. */
 import { ENDPOINT_PRESETS, RESPONSE_LANGUAGES } from "llm-connect";
 import { useLlmSettings } from "llm-connect/react";
 import { useEffect, useState } from "react";
 import { llm } from "../ai/settings";
 import { voiceLabel, voiceRoute } from "../ai/voice";
+import { SYNC_FILE, validRepo } from "../data/sync";
 import { Button, Notice, PageTitle } from "./kit";
 import { useApp } from "./state";
 
@@ -274,12 +275,15 @@ export function Settings() {
         ) : null}
       </section>
 
+      <GitHubSync />
+
       <section className="card mt-4 grid gap-3">
         <h2 className="font-semibold">Your data</h2>
         <p className="text-sm text-stone-600 dark:text-stone-300">
           {entries.length} meals, your profile, goals and the coach conversation are stored in this
-          browser only (IndexedDB). Photos are sent to your model to be estimated, then kept here as
-          small thumbnails.
+          browser (IndexedDB), and in your GitHub repository when sync is on. Photos are sent to
+          your model to be estimated, then kept as small thumbnails. Deleting here leaves the GitHub
+          copy as it is.
         </p>
         <div className="flex flex-wrap gap-2">
           {confirmReset ? (
@@ -314,5 +318,109 @@ export function Settings() {
         </a>
       </p>
     </>
+  );
+}
+
+function GitHubSync() {
+  const { sync, connectSync, disconnectSync, syncNow } = useApp();
+  const [repo, setRepo] = useState("");
+  const [path, setPath] = useState(SYNC_FILE);
+  const [token, setToken] = useState("");
+  const canConnect = validRepo(repo) && path.trim() !== "" && token.trim() !== "" && !sync.syncing;
+
+  async function connect() {
+    if (await connectSync({ repo: repo.trim(), path: path.trim(), token: token.trim() })) {
+      setToken("");
+    }
+  }
+
+  return (
+    <section className="card mt-4 grid gap-3">
+      <h2 className="font-semibold">Sync with GitHub</h2>
+      {sync.target ? (
+        <>
+          <p className="text-sm text-stone-600 dark:text-stone-300">
+            Synced with <span className="font-mono">{sync.target.repo}</span>, file{" "}
+            <span className="font-mono">{sync.target.path}</span>, after each change and when you
+            come back to the app.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              busy={sync.syncing}
+              disabled={sync.syncing}
+              onClick={() => void syncNow()}
+            >
+              Sync now
+            </Button>
+            <Button variant="ghost" onClick={() => void disconnectSync()}>
+              Disconnect
+            </Button>
+            <span className="text-sm text-stone-600 dark:text-stone-300">
+              {sync.syncing
+                ? "Syncing…"
+                : sync.lastSync
+                  ? `Last synced ${new Date(sync.lastSync).toLocaleString()}.`
+                  : null}
+            </span>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-stone-600 dark:text-stone-300">
+            Keep your meals, profile, goals and coach conversation in a file of a GitHub repository,
+            and find them on every device. Use a <strong>private</strong> repository and a{" "}
+            <a
+              className="underline"
+              href="https://github.com/settings/personal-access-tokens/new"
+              target="_blank"
+              rel="noreferrer"
+            >
+              fine-grained token
+            </a>{" "}
+            limited to it, with the permission Contents: read and write. The token is encrypted on
+            this device and only ever sent to GitHub.
+          </p>
+          <label>
+            <span className="label">Repository</span>
+            <input
+              className="input font-mono"
+              placeholder="you/calorie-data"
+              autoComplete="off"
+              spellCheck={false}
+              value={repo}
+              onChange={(e) => setRepo(e.target.value)}
+            />
+          </label>
+          <label>
+            <span className="label">File</span>
+            <input
+              className="input font-mono"
+              autoComplete="off"
+              spellCheck={false}
+              value={path}
+              onChange={(e) => setPath(e.target.value)}
+            />
+          </label>
+          <label>
+            <span className="label">GitHub token</span>
+            <input
+              className="input font-mono"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+            />
+          </label>
+          <div>
+            <Button busy={sync.syncing} disabled={!canConnect} onClick={() => void connect()}>
+              Connect and sync
+            </Button>
+          </div>
+        </>
+      )}
+      {sync.error ? <Notice tone="error">{sync.error}</Notice> : null}
+    </section>
   );
 }

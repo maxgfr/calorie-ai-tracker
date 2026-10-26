@@ -64,7 +64,9 @@ export function Edit({ id }: { id: string }) {
           variant="danger"
           icon="trash"
           onClick={() => {
-            void removeEntry(entry.id).then(() => go({ name: "day", date: entry.date }));
+            void removeEntry(entry.id).then(() =>
+              go({ name: "day", date: entry.date }, { replace: true }),
+            );
           }}
         >
           Delete
@@ -88,7 +90,7 @@ export function Edit({ id }: { id: string }) {
             items: d.items,
             ...(d.notes ? { notes: d.notes } : {}),
             ...(d.confidence ? { confidence: d.confidence } : {}),
-          }).then(() => go({ name: "day", date: d.date }));
+          }).then(() => go({ name: "day", date: d.date }, { replace: true }));
         }}
       />
       {error ? (
