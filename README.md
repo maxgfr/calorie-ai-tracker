@@ -18,11 +18,14 @@ no server: your meals stay in your browser.
    Studio, Jan). Calls go straight from the browser to the provider.
 2. **Log a meal**, three ways:
    - **Describe** it: "2 scrambled eggs, a slice of buttered sourdough and a latte".
-   - **Photo**: the picture is resized in the browser and sent to a vision model, which judges
-     portions against the plate. Text-only models are refused before any request.
-   - **Voice**: transcribed by your provider (OpenAI, Gemini, Mistral, Groq), or by Whisper
-     running on your device when the provider has no transcription (Anthropic). Whisper is
-     downloaded once (about 80 MB) and runs in a worker.
+   - **Photo**: the picture goes to your model (a vision model), which judges portions against
+     the plate. It is only resized first, so the upload stays small. Text-only models are
+     refused before any request.
+   - **Voice**: the recording goes to your provider too, never processed on the device. A model
+     that hears audio (Gemini, directly or through OpenRouter) gets it as is, in one call that
+     returns the meal and what you said. Otherwise the provider's transcription model (OpenAI,
+     Mistral's Voxtral, Groq) writes it down, and the text goes to your model. Anthropic takes no
+     audio: pick another model for voice, or type.
 
    The model answers structured JSON, checked with Zod: each food with its portion, kcal,
    protein, carbs and fat, the meal type, a confidence level and its assumptions. You edit any
@@ -44,10 +47,9 @@ no server: your meals stay in your browser.
 - The API key is encrypted at rest under a non-extractable WebCrypto key (llm-connect's
   `secureStorage`), and kept for the tab only unless you choose to remember it.
 - The only things sent anywhere are your meal descriptions, photos, recordings and coach
-  questions, to the AI provider you chose. On-device Whisper sends nothing.
+  questions, to the AI provider you chose. Nothing is analysed on the device.
 - The page's Content-Security-Policy allows no inline script and no third-party script. It can
-  connect only to `https:` APIs (your provider, the model catalog, Hugging Face for Whisper) and
-  to local model servers.
+  connect only to `https:` APIs (your provider, the model catalog) and to local model servers.
 
 Estimates are approximate and this is not medical advice.
 
@@ -57,7 +59,7 @@ Estimates are approximate and this is not medical advice.
 bun install
 bun run dev        # http://localhost:5173/, rebuilt on change
 bun run test       # unit tests: stats, dates, energy, AI calls against a mocked model
-bun run test:e2e   # Playwright: build, then log a meal against a mocked model
+bun run test:e2e   # Playwright: build, then log meals by text and voice against mocked providers
 bun run typecheck
 bun run lint
 bun run build      # dist/, relative paths, ready for any static host
@@ -66,5 +68,5 @@ bun run catalog    # refresh public/models.json, the offline model catalog
 
 Stack: Bun, Vite, React 19, TypeScript, Tailwind CSS 4,
 [llm-connect](https://www.npmjs.com/package/llm-connect),
-[llm-models](https://www.npmjs.com/package/llm-models), the AI SDK, Zod, idb, transformers.js.
+[llm-models](https://www.npmjs.com/package/llm-models), the AI SDK, Zod, idb.
 MIT license.

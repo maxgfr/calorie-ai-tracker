@@ -7,6 +7,7 @@ import { AiError } from "./call";
 import { coachInstructions, coachReply } from "./coach";
 import { suggestGoals } from "./goals";
 import { analyzeMeal, mealText } from "./meal";
+import { encodeWav, voiceRoute } from "./voice";
 
 const settings: LlmSettings = {
   apiKey: "sk-test-123456",
@@ -46,6 +47,7 @@ const meal = {
   ],
   confidence: "medium",
   notes: "Beurre de cuisson compté.",
+  heard: "",
 };
 
 const vision = resolveCapabilities({
@@ -88,6 +90,18 @@ describe("analyzeMeal", () => {
       { image: { data: new Uint8Array([255, 216, 255]), mediaType: "image/jpeg" } },
     );
     expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain("image/jpeg");
+  });
+
+  test("sends a voice recording to the model as an audio file part", async () => {
+    const model = answering({ ...meal, heard: "deux oeufs et une tartine" });
+    const out = await analyzeMeal(
+      { settings, model, capabilities: vision },
+      { audio: { data: encodeWav(new Float32Array(160), 16_000), mediaType: "audio/wav" } },
+    );
+    const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+    expect(prompt).toContain("audio/wav");
+    expect(prompt).toContain("voice recording");
+    expect(out.heard).toBe("deux oeufs et une tartine");
   });
 
   test("refuses a photo for a model without vision, before any request", async () => {
@@ -182,5 +196,31 @@ describe("coach", () => {
     );
     expect(text).toBe("Mange des lentilles.");
     expect(seen.at(-1)).toBe(text);
+  });
+});
+
+describe("voice", () => {
+  test("goes straight to a model that hears, else through the provider's transcription", () => {
+    expect(voiceRoute(settings, true)).toBe("audio");
+    expect(voiceRoute(settings, false)).toBe("transcribe");
+    const claude = {
+      ...settings,
+      providerId: "anthropic",
+      providerNpm: "@ai-sdk/anthropic",
+      model: "claude-sonnet-5-5",
+    };
+    expect(voiceRoute(claude, false)).toBeNull();
+    expect(voiceRoute(claude, true)).toBe("audio");
+  });
+
+  test("encodes 16-bit mono PCM WAV", () => {
+    const wav = encodeWav(new Float32Array([0, 1, -1]), 16_000);
+    const v = new DataView(wav.buffer);
+    expect(new TextDecoder().decode(wav.slice(0, 4))).toBe("RIFF");
+    expect(new TextDecoder().decode(wav.slice(8, 12))).toBe("WAVE");
+    expect(v.getUint32(24, true)).toBe(16_000);
+    expect(wav.length).toBe(44 + 6);
+    expect(v.getInt16(46, true)).toBe(32767);
+    expect(v.getInt16(48, true)).toBe(-32768);
   });
 });

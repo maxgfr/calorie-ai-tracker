@@ -11,9 +11,13 @@ export interface ModelImage {
   mediaType: string;
 }
 
+/** A recording, as WAV. */
+export type ModelAudio = ModelImage;
+
 export interface MealInput {
   text?: string;
   image?: ModelImage;
+  audio?: ModelAudio;
   /** The meal type the user already picked, if any. */
   mealType?: MealType;
   /** The previous estimate and what the user says is wrong with it. */
@@ -28,6 +32,7 @@ export function mealInstructions(language: string | undefined): string {
     "List each distinct food or drink as its own item, with a realistic portion when none is given (say which in notes).",
     "Give calories and macros (protein, carbs, fat in grams) for the portion, from standard food composition tables (USDA, CIQUAL).",
     "Count cooking fat, sauces, dressings, sugar and milk in drinks when they are likely, as their own items.",
+    "From a voice recording, listen for every food and quantity said, and write what was said in heard.",
     "From a photo, judge portions against the plate, cutlery and hands; mention the main uncertainty in notes.",
     "Keep kcal consistent with the macros (4 kcal/g protein and carbs, 9 kcal/g fat, 7 kcal/g alcohol).",
     "If the input is not food at all, return a single item named 'Nothing to log' with zeros and low confidence.",
@@ -48,6 +53,8 @@ export function mealText(input: MealInput): string {
     lines.push("Return the whole meal again with the correction applied.");
   } else if (input.text?.trim()) {
     lines.push(`What I ate: ${input.text.trim()}`);
+  } else if (input.audio) {
+    lines.push("What I ate is in the voice recording.");
   } else {
     lines.push("What I ate is in the photo.");
   }
@@ -64,12 +71,14 @@ export async function analyzeMeal(ctx: CallContext, input: MealInput): Promise<M
   const content: Exclude<ModelMessage["content"], string> = [
     { type: "text", text: mealText(input) },
   ];
-  if (input.image) {
-    content.push({
-      type: "file",
-      mediaType: input.image.mediaType,
-      data: { type: "data", data: input.image.data },
-    });
+  for (const file of [input.image, input.audio]) {
+    if (file) {
+      content.push({
+        type: "file",
+        mediaType: file.mediaType,
+        data: { type: "data", data: file.data },
+      });
+    }
   }
   const answer = await structured(
     ctx,

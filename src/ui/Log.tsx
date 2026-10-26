@@ -4,7 +4,7 @@ import { AiError } from "../ai/call";
 import { preparePhoto } from "../ai/image";
 import { analyzeMeal, type MealInput, type ModelImage } from "../ai/meal";
 import type { MealAnswer } from "../ai/schema";
-import { speechToText, voiceEngine } from "../ai/voice";
+import { NO_VOICE, toWav, transcribeVoice, voiceLabel, voiceRoute } from "../ai/voice";
 import { dayKey } from "../data/dates";
 import { type EntrySource, MEAL_TYPES, type MealType, newId } from "../data/model";
 import { Button, Icon, type IconName, Notice, PageTitle } from "./kit";
@@ -94,6 +94,7 @@ export function Log({ date }: { date?: string | undefined }) {
       );
       setAnswer(a);
       setSource(from);
+      if (a.heard.trim() && input.audio) setText(a.heard.trim());
       setDraft({
         title: a.title,
         mealType: a.mealType,
@@ -131,14 +132,22 @@ export function Log({ date }: { date?: string | undefined }) {
       return;
     }
     const audio = await recorder.stop();
-    setBusy("Transcribing…");
+    if (!settings) return;
+    const route = voiceRoute(settings);
     try {
-      const said = await speechToText(settings, audio, (p) =>
-        setBusy(p.ratio !== undefined ? `${p.message} ${Math.round(p.ratio * 100)}%` : p.message),
-      );
-      if (!said) throw new Error("Nothing was heard. Try again a little closer to the microphone.");
-      setText(said);
-      await run({ text: said }, "voice");
+      if (route === "audio") {
+        setBusy("Preparing the recording…");
+        await run({ audio: { data: await toWav(audio), mediaType: "audio/wav" } }, "voice");
+      } else if (route === "transcribe") {
+        setBusy("Transcribing with your provider…");
+        const said = await transcribeVoice(settings, audio);
+        if (!said)
+          throw new Error("Nothing was heard. Try again a little closer to the microphone.");
+        setText(said);
+        await run({ text: said }, "voice");
+      } else {
+        throw new Error(NO_VOICE);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(null);
@@ -358,7 +367,7 @@ export function Log({ date }: { date?: string | undefined }) {
               <button
                 type="button"
                 onClick={() => void toggleVoice()}
-                disabled={!!busy}
+                disabled={!!busy || voiceRoute(settings) === null}
                 className={`relative grid size-24 place-items-center rounded-full text-white shadow-lg transition disabled:opacity-50 ${
                   recorder.recording
                     ? "recording bg-rose-600"
@@ -378,9 +387,7 @@ export function Log({ date }: { date?: string | undefined }) {
                     : "Tap and say what you ate, with quantities if you know them.")}
               </p>
               <p className="text-center text-xs text-stone-400">
-                {voiceEngine(settings) === "provider"
-                  ? "Transcribed by your provider."
-                  : "Your provider has no transcription: Whisper runs on this device (about 80 MB, downloaded once)."}
+                {voiceLabel(voiceRoute(settings))}
               </p>
               <MealTypePicker value={mealType} onChange={setMealType} />
             </div>
@@ -412,6 +419,7 @@ export function toAnswer(draft: Draft, fallback?: MealAnswer): MealAnswer {
     items: draft.items,
     confidence: draft.confidence ?? fallback?.confidence ?? "medium",
     notes: draft.notes ?? "",
+    heard: fallback?.heard ?? "",
   };
 }
 

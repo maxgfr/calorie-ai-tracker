@@ -3,7 +3,7 @@ import { ENDPOINT_PRESETS, RESPONSE_LANGUAGES } from "llm-connect";
 import { useLlmSettings } from "llm-connect/react";
 import { useEffect, useState } from "react";
 import { llm } from "../ai/settings";
-import { voiceEngine } from "../ai/voice";
+import { voiceLabel, voiceRoute } from "../ai/voice";
 import { Button, Notice, PageTitle } from "./kit";
 import { useApp } from "./state";
 
@@ -269,11 +269,7 @@ export function Settings() {
         ) : null}
         {settings ? (
           <p className="text-xs text-stone-500">
-            Voice:{" "}
-            {voiceEngine(settings) === "provider"
-              ? "transcribed by your provider"
-              : "Whisper on this device (your provider has no transcription)"}
-            .
+            Photos and voice go to your model. Voice: {voiceLabel(voiceRoute(settings))}
           </p>
         ) : null}
       </section>

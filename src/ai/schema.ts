@@ -23,6 +23,9 @@ export const mealSchema = z.object({
   notes: z
     .string()
     .describe("One or two sentences: assumptions made, or what would sharpen the estimate"),
+  heard: z
+    .string()
+    .describe("For a voice recording: what the person said, word for word. Otherwise empty."),
 });
 export type MealAnswer = z.infer<typeof mealSchema>;
 

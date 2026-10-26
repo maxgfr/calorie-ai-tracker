@@ -11,6 +11,7 @@ const MEAL = {
   ],
   confidence: "high",
   notes: "Made with water.",
+  heard: "",
 };
 
 /** No network: the catalog falls back to models.json, the model answers from here. */
@@ -21,7 +22,7 @@ async function offline(page: Page, errors: string[]) {
       errors.push(m.text());
   });
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.route(/models\.dev|openrouter\.ai/, (r) => r.abort());
+  await page.route(/models\.dev|openrouter\.ai\/api\/v1\/models/, (r) => r.abort());
   await page.route(`${ENDPOINT}/**`, async (route) => {
     const cors = {
       "access-control-allow-origin": "*",
@@ -32,6 +33,9 @@ async function offline(page: Page, errors: string[]) {
       return route.fulfill({ status: 204, headers: cors });
     if (route.request().url().endsWith("/models")) {
       return route.fulfill({ headers: cors, json: { data: [{ id: "mock-model" }] } });
+    }
+    if (route.request().url().endsWith("/audio/transcriptions")) {
+      return route.fulfill({ headers: cors, json: { text: "oatmeal with a banana" } });
     }
     return route.fulfill({
       headers: cors,
@@ -115,5 +119,104 @@ test("goals persist after a reload", async ({ page }) => {
   await expect(page.getByLabel("Calories")).toHaveValue("1850");
   await page.goto("./");
   await expect(page.getByText("of 1850 kcal")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+async function record(page: Page) {
+  await page.goto("./#/log");
+  await page.getByRole("tab", { name: "Voice" }).click();
+  await page.getByRole("button", { name: "Start recording" }).click();
+  await page.waitForTimeout(1200);
+  await page.getByRole("button", { name: "Stop and estimate" }).click();
+}
+
+test("voice goes straight to a model that hears audio", async ({ page }) => {
+  const errors: string[] = [];
+  await offline(page, errors);
+  let body = "";
+  await page.route("https://openrouter.ai/api/v1/chat/completions", async (route) => {
+    body = route.request().postData() ?? "";
+    await route.fulfill({
+      headers: { "access-control-allow-origin": "*" },
+      json: {
+        id: "cmpl-2",
+        object: "chat.completion",
+        created: 1,
+        model: "google/gemini-3-flash-preview",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: JSON.stringify({ ...MEAL, heard: "oatmeal with a banana" }),
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      },
+    });
+  });
+  await page.goto("./#/settings");
+  await page.getByLabel("Provider").selectOption("openrouter");
+  await page.getByPlaceholder("Search models…").fill("gemini-3-flash-preview");
+  await page
+    .getByRole("option", { name: /gemini-3-flash-preview|Gemini 3 Flash Preview/i })
+    .first()
+    .click();
+  await page.getByLabel(/API key/).fill("sk-or-test-123456");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("The recording goes straight to your model.")).toBeVisible();
+
+  await record(page);
+  await expect(page.getByLabel("Food").first()).toHaveValue("Oatmeal");
+  expect(body).toContain("input_audio");
+  expect(body).toContain('"format":"wav"');
+  await page.getByRole("button", { name: "Save meal" }).click();
+  await expect(page.getByText("Oatmeal breakfast")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("voice goes through the provider's transcription otherwise", async ({ page }) => {
+  const errors: string[] = [];
+  await offline(page, errors);
+  const calls: string[] = [];
+  await page.route("https://api.mistral.ai/v1/**", async (route) => {
+    const url = route.request().url();
+    calls.push(url.replace("https://api.mistral.ai/v1/", ""));
+    const cors = { "access-control-allow-origin": "*" };
+    if (url.endsWith("/audio/transcriptions")) {
+      return route.fulfill({
+        headers: cors,
+        json: { model: "voxtral-mini-latest", text: "oatmeal with a banana", language: "en" },
+      });
+    }
+    return route.fulfill({
+      headers: cors,
+      json: {
+        id: "cmpl-3",
+        object: "chat.completion",
+        created: 1,
+        model: "mistral-large-latest",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: JSON.stringify(MEAL) },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+      },
+    });
+  });
+  await page.goto("./#/settings");
+  await page.getByLabel("Provider").selectOption("mistral");
+  await page.getByLabel(/API key/).fill("mistral-test-123456");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText(/Your provider transcribes the recording/)).toBeVisible();
+  await record(page);
+  await expect(page.getByLabel("Food").first()).toHaveValue("Oatmeal");
+  await expect(page.getByPlaceholder(/What did you eat/)).toHaveCount(0);
+  expect(calls).toEqual(["audio/transcriptions", "chat/completions"]);
   expect(errors).toEqual([]);
 });

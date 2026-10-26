@@ -22,7 +22,6 @@
     "@ai-sdk/mistral": "4.0.71",
     "@ai-sdk/openai": "4.0.101",
     "@ai-sdk/openai-compatible": "3.0.77",
-    "@huggingface/transformers": "4.3.1",
     "ai": "7.0.152",
     "idb": "8.0.4",
     "llm-connect": "2.4.1",
