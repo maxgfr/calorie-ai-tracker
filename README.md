@@ -9,6 +9,12 @@ no server: your meals stay in your browser.
 
 **→ [maxgfr.github.io/calorie-ai-tracker](https://maxgfr.github.io/calorie-ai-tracker/)**
 
+![A meal described in words, estimated by Claude Haiku 5.5, corrected in plain words, then the day, the week and the coach's answer](docs/demo.gif)
+
+A meal described in words, estimated, then corrected ("it was 3 eggs, not 2"), the day and the
+week, and the coach. Recorded on the live site with Claude Haiku 5.5, answers in French. Also as a
+[video](https://maxgfr.github.io/calorie-ai-tracker/demo.mp4).
+
 ## How it works
 
 1. **Connect a model.** Bring your own key through

@@ -315,6 +315,10 @@ export function Settings() {
           rel="noreferrer"
         >
           github.com/maxgfr/calorie-ai-tracker
+        </a>{" "}
+        ·{" "}
+        <a className="underline" href="./demo.mp4" target="_blank" rel="noreferrer">
+          Demo video
         </a>
       </p>
     </>

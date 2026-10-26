@@ -117,6 +117,18 @@ export function Day({ date }: { date?: string | undefined }) {
             <p className="mt-1">
               Type it, snap it or say it: “a bowl of oatmeal with banana and a coffee”.
             </p>
+            {entries.length === 0 ? (
+              <p className="mt-3">
+                <a
+                  className="font-medium text-brand-700 underline underline-offset-2 dark:text-brand-400"
+                  href="./demo.mp4"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Watch a 30-second demo
+                </a>
+              </p>
+            ) : null}
           </div>
         ) : (
           MEAL_TYPES.map((type) => {
