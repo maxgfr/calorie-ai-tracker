@@ -1,12 +1,17 @@
 /** The coach: a conversation grounded in the profile, the goals and the week's meals. */
 import { type ModelMessage, streamText } from "ai";
 import {
+  type Capabilities,
   callOptions,
+  callProblem,
+  type LlmSettings,
   languageName,
   loadModel,
   providerKindOf,
   type StopReason,
   stopReasonOf,
+  WEB_SEARCH_TOOL,
+  webSearchTools,
 } from "llm-connect";
 import { formatDay } from "../data/dates";
 import {
@@ -17,12 +22,17 @@ import {
   type Goals,
   OBJECTIVES,
   type Profile,
+  type Source,
 } from "../data/model";
 import { entryTotals, type WeekSummary } from "../data/stats";
 import { AiError, aiError, type CallContext, preflight } from "./call";
+import { capabilitiesOf } from "./settings";
 
 /** Earlier turns sent with each question, at most. */
 const HISTORY = 20;
+
+/** Web searches per answer, at most (Anthropic bills each one). */
+const SEARCHES = 3;
 
 export interface CoachContext {
   profile: Profile;
@@ -36,7 +46,11 @@ export interface CoachContext {
 
 const r = Math.round;
 
-export function coachInstructions(c: CoachContext, language: string | undefined): string {
+export function coachInstructions(
+  c: CoachContext,
+  language: string | undefined,
+  webSearch = false,
+): string {
   const p = c.profile;
   const days = c.week.days.map((d) =>
     d.meals === 0
@@ -51,6 +65,12 @@ export function coachInstructions(c: CoachContext, language: string | undefined)
     "You are a warm, practical nutrition coach inside a calorie tracker. Be concise: short paragraphs or bullet points.",
     "Ground every answer in the data below; cite numbers. Suggest concrete foods and swaps. Never shame.",
     "You are not a doctor: for medical conditions, eating disorders or pregnancy, recommend a professional.",
+    ...(webSearch
+      ? [
+          "You can search the web. Search when the question needs facts the data below does not hold: a product's or a restaurant dish's nutrition, a food's values you are unsure of, recent guidelines or research. Do not search for what the data answers.",
+          "When you use what a search found, cite the pages as Markdown links.",
+        ]
+      : []),
     `Answer in ${languageName(language)}.`,
     "",
     `Today is ${c.today}.`,
@@ -73,6 +93,15 @@ export interface CoachAnswer {
   text: string;
   /** Set when the answer did not end on its own. */
   end?: AnswerEnd;
+  /** The pages a web search brought, when the model searched. */
+  sources?: Source[];
+}
+
+export interface CoachProgress {
+  /** The answer so far. */
+  onText: (text: string) => void;
+  /** The model started a web search. */
+  onSearch?: () => void;
 }
 
 const UNFINISHED: Partial<Record<StopReason, AnswerEnd>> = {
@@ -82,18 +111,32 @@ const UNFINISHED: Partial<Record<StopReason, AnswerEnd>> = {
   "content-filter": "content-filter",
 };
 
+/** Whether the coach can search the web with this model. */
+export function canSearch(
+  settings: LlmSettings,
+  capabilities: Capabilities = capabilitiesOf(settings),
+): boolean {
+  return (
+    capabilities.webSearch !== null && !callProblem(settings, { webSearch: true }, capabilities)
+  );
+}
+
 /**
  * Streams the coach's answer to the last user message; resolves with the whole
- * text and how it ended. Stopped halfway, the answer keeps what came.
+ * text, how it ended and the pages it searched. Stopped halfway, the answer
+ * keeps what came. The model searches the web when it has the provider's search.
  */
 export async function coachReply(
   ctx: CallContext,
   context: CoachContext,
   history: ChatMessage[],
-  onText: (text: string) => void,
+  progress: CoachProgress | ((text: string) => void),
 ): Promise<CoachAnswer> {
+  const { onText, onSearch } = typeof progress === "function" ? { onText: progress } : progress;
   const messages = toMessages(history);
   const capabilities = preflight(ctx, messages);
+  const search = canSearch(ctx.settings, capabilities);
+  const sources = new Map<string, Source>();
   let text = "";
   let failure: unknown = null;
   // A stream that closes without a finish event was cut.
@@ -101,8 +144,11 @@ export async function coachReply(
   try {
     const result = streamText({
       model: ctx.model ?? (await loadModel(ctx.settings)),
-      instructions: coachInstructions(context, ctx.settings.language),
+      instructions: coachInstructions(context, ctx.settings.language, search),
       messages,
+      ...(search
+        ? { tools: await webSearchTools(capabilities.webSearch, { maxUses: SEARCHES }) }
+        : {}),
       maxRetries: 1,
       ...(ctx.signal ? { abortSignal: ctx.signal } : {}),
       ...callOptions(ctx.settings, { capabilities }),
@@ -110,9 +156,21 @@ export async function coachReply(
       onError: () => {},
     });
     for await (const part of result.fullStream) {
-      if (part.type === "text-delta") {
+      if (part.type === "text-start") {
+        // Text around a search comes in separate blocks: keep them apart.
+        if (text && !/\s$/.test(text)) text += "\n\n";
+      } else if (part.type === "text-delta") {
         text += part.text;
         onText(text);
+      } else if (part.type === "tool-call" && part.toolName === WEB_SEARCH_TOOL) {
+        onSearch?.();
+      } else if (part.type === "source" && part.sourceType === "url") {
+        if (!sources.has(part.url)) {
+          sources.set(
+            part.url,
+            part.title ? { url: part.url, title: part.title } : { url: part.url },
+          );
+        }
       } else if (part.type === "finish") {
         const stop = stopReasonOf(
           providerKindOf(ctx.settings),
@@ -127,8 +185,9 @@ export async function coachReply(
   } catch (err) {
     failure = err;
   }
+  const found = sources.size ? { sources: [...sources.values()] } : {};
   if (ctx.signal?.aborted) {
-    if (text.trim()) return { text, end: "stopped" };
+    if (text.trim()) return { text, end: "stopped", ...found };
     throw new DOMException("Cancelled", "AbortError");
   }
   if (failure) throw aiError(failure, ctx.settings);
@@ -140,5 +199,5 @@ export async function coachReply(
       true,
     );
   }
-  return end ? { text, end } : { text };
+  return { text, ...(end ? { end } : {}), ...found };
 }

@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { AiError } from "../ai/call";
-import { coachReply } from "../ai/coach";
+import { canSearch, coachReply } from "../ai/coach";
 import { dayKey, weekStart } from "../data/dates";
 import * as db from "../data/db";
 import { type AnswerEnd, type ChatMessage, newId } from "../data/model";
@@ -36,6 +36,7 @@ export function Coach({ ask }: { ask?: string | undefined }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<{ message: string; retry: boolean } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -93,19 +94,22 @@ export function Coach({ ask }: { ask?: string | undefined }) {
     setError(null);
     abort.current = new AbortController();
     setStreaming("");
+    setSearching(false);
     try {
-      const a = await coachReply(
-        { settings, signal: abort.current.signal },
-        context,
-        history,
-        setStreaming,
-      );
+      const a = await coachReply({ settings, signal: abort.current.signal }, context, history, {
+        onText: (t) => {
+          setSearching(false);
+          setStreaming(t);
+        },
+        onSearch: () => setSearching(true),
+      });
       const reply: ChatMessage = {
         id: newId(),
         role: "assistant",
         text: a.text,
         time: Date.now(),
         ...(a.end ? { end: a.end } : {}),
+        ...(a.sources ? { sources: a.sources } : {}),
       };
       await db.putChat(reply);
       setMessages((m) => [...m, reply]);
@@ -119,6 +123,7 @@ export function Coach({ ask }: { ask?: string | undefined }) {
       }
     } finally {
       setStreaming(null);
+      setSearching(false);
     }
   }
 
@@ -166,6 +171,7 @@ export function Coach({ ask }: { ask?: string | undefined }) {
   }
 
   const busy = streaming !== null;
+  const searches = canSearch(settings);
   const unanswered = messages.at(-1)?.role === "user";
   // On a touch keyboard Enter makes a new line; the send button sends.
   const enterSends = !window.matchMedia("(pointer: coarse)").matches;
@@ -175,14 +181,13 @@ export function Coach({ ask }: { ask?: string | undefined }) {
 
   const tail = (
     <>
-      {busy ? (
-        streaming ? (
-          <Bubble message={{ id: "live", role: "assistant", text: streaming, time: 0 }} live />
-        ) : (
-          <div className="flex items-center gap-2 text-sm text-stone-500 dark:text-stone-400">
-            <Spinner /> Thinking…
-          </div>
-        )
+      {busy && streaming ? (
+        <Bubble message={{ id: "live", role: "assistant", text: streaming, time: 0 }} live />
+      ) : null}
+      {busy && (searching || !streaming) ? (
+        <div className="flex items-center gap-2 text-sm text-stone-500 dark:text-stone-400">
+          <Spinner /> {searching ? "Searching the web…" : "Thinking…"}
+        </div>
       ) : null}
       {error ? (
         <Notice tone="error">
@@ -206,7 +211,14 @@ export function Coach({ ask }: { ask?: string | undefined }) {
 
   return (
     <div className="flex min-h-[calc(100dvh-11rem)] flex-col">
-      <PageTitle title="Coach" subtitle="Knows your goals and this week's meals.">
+      <PageTitle
+        title="Coach"
+        subtitle={
+          searches
+            ? "Knows your goals and this week's meals, and searches the web."
+            : "Knows your goals and this week's meals."
+        }
+      >
         {messages.length === 0 ? null : confirmClear ? (
           <div className="flex items-center gap-1">
             <span className="mr-1 text-sm text-stone-600 dark:text-stone-300">
@@ -345,6 +357,7 @@ function Bubble({ message, live = false }: { message: ChatMessage; live?: boolea
           </Markdown>
         )}
       </div>
+      {!mine && !live && message.sources?.length ? <Sources sources={message.sources} /> : null}
       {mine || live ? null : (
         <div className="flex flex-wrap items-center gap-x-3 px-1 text-xs text-stone-500 dark:text-stone-400">
           <CopyButton text={message.text} />
@@ -356,6 +369,40 @@ function Bubble({ message, live = false }: { message: ChatMessage; live?: boolea
         </div>
       )}
     </div>
+  );
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+/** The pages a web search brought, under the answer that used them. */
+function Sources({ sources }: { sources: NonNullable<ChatMessage["sources"]> }) {
+  return (
+    <details className="max-w-[85%] px-1 text-xs text-stone-500 dark:text-stone-400">
+      <summary className="cursor-pointer select-none hover:text-stone-900 dark:hover:text-white">
+        {sources.length === 1 ? "1 source" : `${sources.length} sources`} from the web
+      </summary>
+      <ol className="mt-1 grid list-decimal gap-0.5 pl-5">
+        {sources.map((s) => (
+          <li key={s.url} className="min-w-0 truncate">
+            <a
+              href={s.url}
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 hover:text-stone-900 dark:hover:text-white"
+            >
+              {s.title || hostOf(s.url)}
+            </a>
+            {s.title ? <span className="ml-1 opacity-70">{hostOf(s.url)}</span> : null}
+          </li>
+        ))}
+      </ol>
+    </details>
   );
 }
 

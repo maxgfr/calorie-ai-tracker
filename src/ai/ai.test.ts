@@ -242,6 +242,85 @@ describe("coach", () => {
     );
     expect(answer).toEqual({ text: "Mange ", end: "stopped" });
   });
+
+  const finish = {
+    type: "finish" as const,
+    finishReason: { unified: "stop" as const, raw: "stop" },
+    usage: {
+      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 1, text: 1, reasoning: 0 },
+    },
+  };
+
+  test("searches the web when the model can, and keeps the pages it read", async () => {
+    const searching = resolveCapabilities({
+      kind: "openai",
+      modelId: "gpt-test",
+      override: { webSearch: "openai:web_search" },
+    });
+    const model = new MockLanguageModelV4({
+      doStream: async () => ({
+        stream: new ReadableStream({
+          start(c) {
+            c.enqueue({ type: "text-start", id: "1" });
+            c.enqueue({ type: "text-delta", id: "1", delta: "Je cherche." });
+            c.enqueue({ type: "text-end", id: "1" });
+            c.enqueue({
+              type: "tool-call",
+              toolCallId: "s1",
+              toolName: "web_search",
+              input: "{}",
+              providerExecuted: true,
+            });
+            for (const id of ["a", "b", "a"]) {
+              c.enqueue({
+                type: "source",
+                sourceType: "url",
+                id,
+                url: `https://example.org/${id}`,
+                title: `Page ${id}`,
+              });
+            }
+            c.enqueue({ type: "text-start", id: "2" });
+            c.enqueue({ type: "text-delta", id: "2", delta: "Un Big Mac fait 550 kcal." });
+            c.enqueue({ type: "text-end", id: "2" });
+            c.enqueue(finish);
+            c.close();
+          },
+        }),
+      }),
+    });
+    let searched = false;
+    const answer = await coachReply(
+      { settings, model, capabilities: searching },
+      context,
+      question,
+      {
+        onText: () => {},
+        onSearch: () => {
+          searched = true;
+        },
+      },
+    );
+    expect(searched).toBe(true);
+    expect(answer).toEqual({
+      text: "Je cherche.\n\nUn Big Mac fait 550 kcal.",
+      sources: [
+        { url: "https://example.org/a", title: "Page a" },
+        { url: "https://example.org/b", title: "Page b" },
+      ],
+    });
+    const call = model.doStreamCalls[0];
+    expect(call?.tools?.map((t) => t.name)).toEqual(["web_search"]);
+    expect(JSON.stringify(call?.prompt)).toContain("You can search the web");
+  });
+
+  test("declares no search for a model without one", async () => {
+    const model = streaming(["Mange ", "des lentilles."], "stop");
+    await coachReply({ settings, model, capabilities: vision }, context, question, () => {});
+    expect(model.doStreamCalls[0]?.tools ?? []).toEqual([]);
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain("search the web");
+  });
 });
 
 describe("errors", () => {

@@ -78,12 +78,20 @@ export interface Goals extends Nutrients {
 /** How an answer ended when it did not end on its own: stopped, cut at the length limit… */
 export type AnswerEnd = "stopped" | "length" | "truncated" | "refusal" | "content-filter";
 
+/** A web page the coach read to answer. */
+export interface Source {
+  url: string;
+  title?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
   time: number;
   end?: AnswerEnd;
+  /** The pages a web search brought, when the coach searched. */
+  sources?: Source[];
 }
 
 export const DEFAULT_PROFILE: Profile = {

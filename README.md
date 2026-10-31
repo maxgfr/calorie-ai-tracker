@@ -44,7 +44,10 @@ week, and the coach. Recorded on the live site with Claude Haiku 5.5, answers in
    Mifflin–St Jeor baseline; the AI adjusts it to your notes and your week, within safe bounds,
    and explains its numbers. Every number stays editable.
 6. **Coach**: a streamed chat grounded in your goals, your week day by day and every meal logged
-   this week, in the language you pick.
+   this week, in the language you pick. With a model that has its provider's web search (Claude,
+   GPT on OpenAI, Gemini), the coach searches the web when the question needs it (a product's or
+   a restaurant dish's nutrition, recent guidelines), at most 3 searches per answer, and lists the
+   pages it read under its answer.
 7. **Sync with GitHub** (optional): your data as one JSON file in a repository of yours, so every
    device you use has it. Create a private repository and a
    [fine-grained token](https://github.com/settings/personal-access-tokens/new) limited to it
@@ -62,7 +65,8 @@ week, and the coach. Recorded on the live site with Claude Haiku 5.5, answers in
   is encrypted the same way.
 - The only things sent anywhere are your meal descriptions, photos, recordings and coach
   questions, to the AI provider you chose, and, when you turn sync on, your data to your GitHub
-  repository. Nothing is analysed on the device.
+  repository. Nothing is analysed on the device. Web searches run on the provider's side, with its
+  own search tool, and are billed by it.
 - The page's Content-Security-Policy allows no inline script and no third-party script. It can
   connect only to `https:` APIs (your provider, the model catalog) and to local model servers.
 
