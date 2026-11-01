@@ -132,6 +132,83 @@ describe("analyzeMeal", () => {
     await expect(run).rejects.toBeInstanceOf(AiError);
   });
 
+  const searching = resolveCapabilities({
+    kind: "openai",
+    modelId: "gpt-test",
+    override: { vision: true, webSearch: "openai:web_search" },
+  });
+
+  /** A model whose search pass answers `found` (searching first), then estimates `meal`. */
+  function lookingUp(found: string | Error, searches = true) {
+    return new MockLanguageModelV4({
+      doStream: async () => {
+        if (found instanceof Error) throw found;
+        return {
+          stream: new ReadableStream({
+            start(c) {
+              if (searches) {
+                c.enqueue({
+                  type: "tool-call",
+                  toolCallId: "s1",
+                  toolName: "web_search",
+                  input: "{}",
+                  providerExecuted: true,
+                });
+              }
+              c.enqueue({ type: "text-start", id: "1" });
+              c.enqueue({ type: "text-delta", id: "1", delta: found });
+              c.enqueue({ type: "text-end", id: "1" });
+              c.enqueue({
+                type: "finish",
+                finishReason: { unified: "stop", raw: "stop" },
+                usage: {
+                  inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                  outputTokens: { total: 1, text: 1, reasoning: 0 },
+                },
+              });
+              c.close();
+            },
+          }),
+        };
+      },
+      doGenerate: answering(meal).doGenerate,
+    });
+  }
+
+  test("looks up a branded food on the web, then estimates from what it found", async () => {
+    const model = lookingUp(
+      "Tasty Crousty : 590 kcal, P 27 g, C 55 g, F 29 g (https://example.org)",
+    );
+    let searched = false;
+    await analyzeMeal({ settings, model, capabilities: searching }, { text: "un Tasty" }, () => {
+      searched = true;
+    });
+    expect(searched).toBe(true);
+    expect(model.doStreamCalls[0]?.tools?.map((t) => t.name)).toEqual(["web_search"]);
+    expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain(
+      "Nutrition facts found on the web:\\nTasty Crousty : 590 kcal",
+    );
+  });
+
+  test("estimates from food tables when there is nothing to look up, or the search fails", async () => {
+    for (const model of [lookingUp("NONE", false), lookingUp(new Error("search down"))]) {
+      const out = await analyzeMeal(
+        { settings, model, capabilities: searching },
+        { text: "2 oeufs" },
+      );
+      expect(out.items).toHaveLength(2);
+      expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).not.toContain(
+        "Nutrition facts found on the web:",
+      );
+    }
+  });
+
+  test("does no search pass for a model without web search", async () => {
+    const model = answering(meal);
+    await analyzeMeal({ settings, model, capabilities: vision }, { text: "un Tasty" });
+    expect(model.doGenerateCalls).toHaveLength(1);
+  });
+
   test("a correction carries the previous estimate", () => {
     const text = mealText({ previous: meal as never, correction: "double portion" });
     expect(text).toContain("double portion");

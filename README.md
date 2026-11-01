@@ -35,7 +35,10 @@ week, and the coach. Recorded on the live site with Claude Haiku 5.5, answers in
 
    The model answers structured JSON, checked with Zod: each food with its portion, kcal,
    protein, carbs and fat, the meal type, a confidence level and its assumptions. You edit any
-   row, or ask the AI to correct the estimate.
+   row, or ask the AI to correct the estimate. With a model that has its provider's web search
+   (Claude, GPT on OpenAI, Gemini), a meal that names a brand, a packaged product or a
+   restaurant dish is looked up on the web first (at most 3 searches), and the estimate uses
+   the official nutrition facts found; generic foods go straight to the food tables.
 3. **Today**: a calorie ring against your goal, macro bars, the meals by type. Browse past days
    and log for any of them.
 4. **Week**: calories per day against the goal line, daily average, days on target (±10%), days

@@ -91,6 +91,8 @@ export function Log({ date }: { date?: string | undefined }) {
       const a = await analyzeMeal(
         { settings },
         { ...input, ...(mealType !== "auto" ? { mealType } : {}) },
+        // A correction keeps its own label: the editor shows it as busy.
+        input.previous ? undefined : () => setBusy("Searching the web…"),
       );
       setAnswer(a);
       setSource(from);

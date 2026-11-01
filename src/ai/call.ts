@@ -82,6 +82,16 @@ export function preflight(ctx: CallContext, messages: ModelMessage[]): Capabilit
   return capabilities;
 }
 
+/** Whether the model has its provider's web search, and can use it in a call. */
+export function canSearch(
+  settings: LlmSettings,
+  capabilities: Capabilities = capabilitiesOf(settings),
+): boolean {
+  return (
+    capabilities.webSearch !== null && !callProblem(settings, { webSearch: true }, capabilities)
+  );
+}
+
 /** One structured answer, checked against `schema`. */
 export async function structured<S extends z.ZodType>(
   ctx: CallContext,

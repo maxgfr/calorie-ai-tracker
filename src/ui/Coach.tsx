@@ -2,8 +2,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AiError } from "../ai/call";
-import { canSearch, coachReply } from "../ai/coach";
+import { AiError, canSearch } from "../ai/call";
+import { coachReply } from "../ai/coach";
 import { dayKey, weekStart } from "../data/dates";
 import * as db from "../data/db";
 import { type AnswerEnd, type ChatMessage, newId } from "../data/model";

@@ -1,10 +1,7 @@
 /** The coach: a conversation grounded in the profile, the goals and the week's meals. */
 import { type ModelMessage, streamText } from "ai";
 import {
-  type Capabilities,
   callOptions,
-  callProblem,
-  type LlmSettings,
   languageName,
   loadModel,
   providerKindOf,
@@ -25,8 +22,7 @@ import {
   type Source,
 } from "../data/model";
 import { entryTotals, type WeekSummary } from "../data/stats";
-import { AiError, aiError, type CallContext, preflight } from "./call";
-import { capabilitiesOf } from "./settings";
+import { AiError, aiError, type CallContext, canSearch, preflight } from "./call";
 
 /** Earlier turns sent with each question, at most. */
 const HISTORY = 20;
@@ -110,16 +106,6 @@ const UNFINISHED: Partial<Record<StopReason, AnswerEnd>> = {
   refusal: "refusal",
   "content-filter": "content-filter",
 };
-
-/** Whether the coach can search the web with this model. */
-export function canSearch(
-  settings: LlmSettings,
-  capabilities: Capabilities = capabilitiesOf(settings),
-): boolean {
-  return (
-    capabilities.webSearch !== null && !callProblem(settings, { webSearch: true }, capabilities)
-  );
-}
 
 /**
  * Streams the coach's answer to the last user message; resolves with the whole
