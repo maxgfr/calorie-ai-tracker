@@ -1,5 +1,6 @@
 /** Everything the app keeps, in this browser's IndexedDB. */
 import { type DBSchema, type IDBPDatabase, openDB } from "idb";
+import { sealedStore } from "llm-connect";
 import {
   type ChatMessage,
   DEFAULT_GOALS,
@@ -24,16 +25,18 @@ interface Settings {
   updated?: number;
 }
 
-/** The sync settings, the token encrypted. */
+/** The sync settings; the token is in the sealed store. */
 interface StoredSync {
   repo: string;
   path: string;
-  token: { iv: Uint8Array<ArrayBuffer>; data: ArrayBuffer };
   lastSync?: number;
+  /** Before llm-connect's sealed store: the token, sealed under meta's "crypto-key". */
+  token?: { iv: Uint8Array<ArrayBuffer>; data: ArrayBuffer };
 }
 
 interface Meta {
   "chat-cleared": number;
+  /** Before llm-connect's sealed store: the key the token was sealed with. */
   "crypto-key": CryptoKey;
   sync: StoredSync;
 }
@@ -48,6 +51,10 @@ interface Schema extends DBSchema {
 }
 
 const DB_NAME = "calorie-ai-tracker";
+
+/** The GitHub token, sealed under a key the page can use but never read out. */
+const secrets = sealedStore({ dbName: "calorie-ai-tracker-sealed" });
+const TOKEN = "github-token";
 
 /**
  * Every page of maxgfr.github.io shares this origin's storage quota: once another site
@@ -144,9 +151,10 @@ export async function clearChat(): Promise<void> {
 /** Removes every meal, the profile, the goals, the conversation and the sync settings. */
 export async function clearAll(): Promise<void> {
   const d = await open();
-  await Promise.all(
-    (["entries", "settings", "chat", "deleted", "meta"] as const).map((s) => d.clear(s)),
-  );
+  await Promise.all([
+    ...(["entries", "settings", "chat", "deleted", "meta"] as const).map((s) => d.clear(s)),
+    secrets.destroy(),
+  ]);
 }
 
 async function photoToUrl(photo: Blob): Promise<string> {
@@ -212,59 +220,72 @@ export async function applySnapshot(snapshot: Snapshot): Promise<Snapshot> {
   return result;
 }
 
-/** A key the page can use but never read out, made once per browser. */
-async function cryptoKey(): Promise<CryptoKey> {
-  const d = await open();
-  const saved = await d.get("meta", "crypto-key");
-  if (saved instanceof CryptoKey) return saved;
-  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
-    "encrypt",
-    "decrypt",
-  ]);
-  await d.put("meta", key, "crypto-key");
-  return key;
-}
-
 export interface SyncState {
   config: SyncConfig;
   lastSync: number | null;
 }
 
-export async function loadSync(): Promise<SyncState | null> {
-  const saved = (await (await open()).get("meta", "sync")) as StoredSync | undefined;
-  if (!saved) return null;
+/**
+ * A token saved before the sealed store: opened with the old key, moved to the
+ * sealed store, and the old copy and key removed once the new one is stored.
+ */
+async function migrateToken(saved: StoredSync): Promise<string | null> {
+  if (!saved.token) return null;
+  const d = await open();
+  const key = await d.get("meta", "crypto-key");
+  if (!(key instanceof CryptoKey)) return null;
+  let token: string;
   try {
     const plain = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv: saved.token.iv },
-      await cryptoKey(),
+      key,
       saved.token.data,
     );
-    const token = new TextDecoder().decode(plain);
-    return {
-      config: { repo: saved.repo, path: saved.path, token },
-      lastSync: saved.lastSync ?? null,
-    };
+    token = new TextDecoder().decode(plain);
   } catch {
     return null;
   }
+  if (await secrets.set(TOKEN, token)) {
+    const { token: _old, ...rest } = saved;
+    const tx = d.transaction("meta", "readwrite");
+    await Promise.all([tx.store.put(rest, "sync"), tx.store.delete("crypto-key"), tx.done]).catch(
+      () => {},
+    );
+  }
+  return token;
 }
 
-export async function saveSync(config: SyncConfig, lastSync?: number): Promise<void> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const data = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv },
-    await cryptoKey(),
-    new TextEncoder().encode(config.token),
-  );
+export async function loadSync(): Promise<SyncState | null> {
+  const saved = (await (await open()).get("meta", "sync")) as StoredSync | undefined;
+  if (!saved) return null;
+  const token = saved.token ? await migrateToken(saved) : await secrets.get(TOKEN);
+  if (token === null) return null;
+  return {
+    config: { repo: saved.repo, path: saved.path, token },
+    lastSync: saved.lastSync ?? null,
+  };
+}
+
+/** False when the token could not be stored (storage full or blocked): nothing is changed then. */
+export async function saveSync(config: SyncConfig, lastSync?: number): Promise<boolean> {
+  if ((await secrets.get(TOKEN)) !== config.token && !(await secrets.set(TOKEN, config.token))) {
+    return false;
+  }
   const stored: StoredSync = {
     repo: config.repo,
     path: config.path,
-    token: { iv, data },
     ...(lastSync ? { lastSync } : {}),
   };
-  await (await open()).put("meta", stored, "sync");
+  const tx = (await open()).transaction("meta", "readwrite");
+  await Promise.all([tx.store.put(stored, "sync"), tx.store.delete("crypto-key"), tx.done]);
+  return true;
 }
 
 export async function clearSync(): Promise<void> {
-  await (await open()).delete("meta", "sync");
+  const d = await open();
+  await Promise.all([
+    d.delete("meta", "sync"),
+    d.delete("meta", "crypto-key"),
+    secrets.delete(TOKEN),
+  ]);
 }
