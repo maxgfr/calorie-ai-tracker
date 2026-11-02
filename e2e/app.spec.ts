@@ -122,6 +122,42 @@ test("goals persist after a reload", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test("a full storage (every maxgfr.github.io page shares it): says what is not saved", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  await offline(page, errors);
+  await page.addInitScript(() => {
+    const full = () => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    };
+    Storage.prototype.setItem = full;
+    IDBObjectStore.prototype.put = full;
+    IDBObjectStore.prototype.add = full;
+  });
+  await page.goto("./#/settings");
+  await page.getByRole("tab", { name: "Local / custom" }).click();
+  await page.getByLabel("Endpoint (OpenAI-compatible)").fill(ENDPOINT);
+  await page.getByLabel("Model", { exact: true }).fill("mock-model");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText(/kept for this page only/)).toBeVisible();
+  await expect(page.getByText("Saved.")).toHaveCount(0);
+
+  await page.goto("./#/log");
+  await page.getByPlaceholder(/What did you eat/).fill("oatmeal with a banana");
+  await page.getByRole("button", { name: "Estimate" }).click();
+  await page.getByRole("button", { name: "Save meal" }).click();
+  await expect(page.getByText(/^Not saved/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save meal" })).toBeEnabled();
+
+  await page.goto("./#/goals");
+  await page.getByRole("button", { name: "Use the baseline" }).click();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText(/^Not saved/)).toBeVisible();
+  await expect(page.getByText("Saved.")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 async function record(page: Page) {
   await page.goto("./#/log");
   await page.getByRole("tab", { name: "Voice" }).click();

@@ -1,6 +1,7 @@
 /** Change a saved meal by hand, or ask the AI to correct it. */
 import { useState } from "react";
 import { analyzeMeal } from "../ai/meal";
+import { NOT_STORED } from "../data/db";
 import { Button, Notice, PageTitle } from "./kit";
 import { toAnswer } from "./Log";
 import { type Draft, MealEditor } from "./MealEditor";
@@ -90,7 +91,13 @@ export function Edit({ id }: { id: string }) {
             items: d.items,
             ...(d.notes ? { notes: d.notes } : {}),
             ...(d.confidence ? { confidence: d.confidence } : {}),
-          }).then(() => go({ name: "day", date: d.date }, { replace: true }));
+          }).then(
+            () => go({ name: "day", date: d.date }, { replace: true }),
+            () => {
+              setBusy(null);
+              setError(NOT_STORED);
+            },
+          );
         }}
       />
       {error ? (

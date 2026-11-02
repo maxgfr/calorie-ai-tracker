@@ -4,6 +4,7 @@ import { useLlmSettings } from "llm-connect/react";
 import { useEffect, useState } from "react";
 import { llm } from "../ai/settings";
 import { voiceLabel, voiceRoute } from "../ai/voice";
+import { STORED_FOR_PAGE } from "../data/db";
 import { SYNC_FILE, validRepo } from "../data/sync";
 import { Button, Notice, PageTitle } from "./kit";
 import { useApp } from "./state";
@@ -32,7 +33,9 @@ export function Settings() {
     const r = await llm.save();
     setSaved(
       r.ok
-        ? "Saved."
+        ? r.persisted
+          ? "Saved."
+          : STORED_FOR_PAGE
         : r.reason === "incomplete"
           ? "Pick a model and enter a key first."
           : r.reason === "insecure-endpoint"

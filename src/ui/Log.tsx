@@ -6,6 +6,7 @@ import { analyzeMeal, type MealInput, type ModelImage } from "../ai/meal";
 import type { MealAnswer } from "../ai/schema";
 import { NO_VOICE, toWav, transcribeVoice, voiceLabel, voiceRoute } from "../ai/voice";
 import { dayKey } from "../data/dates";
+import { NOT_STORED } from "../data/db";
 import { type EntrySource, MEAL_TYPES, type MealType, newId } from "../data/model";
 import { Button, Icon, type IconName, Notice, PageTitle } from "./kit";
 import { type Draft, MealEditor } from "./MealEditor";
@@ -158,8 +159,9 @@ export function Log({ date }: { date?: string | undefined }) {
 
   async function save(d: Draft) {
     setBusy("Saving…");
+    setError(null);
     const now = Date.now();
-    await saveEntry({
+    const kept = await saveEntry({
       id: newId(),
       date: d.date,
       time: d.date === dayKey() ? now : new Date(`${d.date}T12:00:00`).getTime() + (now % 1000),
@@ -171,7 +173,15 @@ export function Log({ date }: { date?: string | undefined }) {
       ...(d.confidence ? { confidence: d.confidence } : {}),
       ...(d.notes ? { notes: d.notes } : {}),
       ...(source === "photo" && photo ? { photo: photo.thumbnail } : {}),
-    });
+    }).then(
+      () => true,
+      () => false,
+    );
+    if (!kept) {
+      setBusy(null);
+      setError(NOT_STORED);
+      return;
+    }
     go({ name: "day", ...(d.date !== dayKey() ? { date: d.date } : {}) }, { replace: true });
   }
 
