@@ -111,7 +111,8 @@ export function Coach({ ask }: { ask?: string | undefined }) {
         ...(a.end ? { end: a.end } : {}),
         ...(a.sources ? { sources: a.sources } : {}),
       };
-      await db.putChat(reply);
+      // Best effort: the answer shows even when the storage refuses to keep it.
+      await db.putChat(reply).catch(() => {});
       setMessages((m) => [...m, reply]);
     } catch (err) {
       if (!(err instanceof DOMException && err.name === "AbortError")) {
@@ -141,7 +142,7 @@ export function Coach({ ask }: { ask?: string | undefined }) {
     setMessages(history);
     setInput("");
     setConfirmClear(false);
-    await db.putChat(question);
+    await db.putChat(question).catch(() => {});
     await answer(history);
   }
 

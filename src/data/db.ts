@@ -48,6 +48,14 @@ interface Schema extends DBSchema {
 }
 
 const DB_NAME = "calorie-ai-tracker";
+
+/**
+ * Every page of maxgfr.github.io shares this origin's storage quota: once another site
+ * has used it up (or the browser blocks site data), writes are refused. Said, not hidden.
+ */
+export const NOT_STORED = "Not saved: this site's storage in your browser is full or blocked.";
+export const STORED_FOR_PAGE =
+  "This site's storage in your browser is full or blocked: kept for this page only, gone after a reload.";
 const SETTINGS_KEY = "me";
 
 let db: Promise<IDBPDatabase<Schema>> | null = null;

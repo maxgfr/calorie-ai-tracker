@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { suggestGoals } from "../ai/goals";
 import { dayKey, weekStart } from "../data/dates";
+import { NOT_STORED } from "../data/db";
 import { baselineGoals, maintenanceKcal } from "../data/energy";
 import {
   ACTIVITIES,
@@ -60,6 +61,7 @@ export function Goals() {
   const [busy, setBusy] = useState<"ai" | "save" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => setProfile(saved), [saved]);
   useEffect(() => setGoals(savedGoals), [savedGoals]);
@@ -87,9 +89,15 @@ export function Goals() {
 
   async function save() {
     setBusy("save");
-    await saveProfile(profile, goals);
-    setBusy(null);
-    setSavedAt(Date.now());
+    setSaveError(null);
+    try {
+      await saveProfile(profile, goals);
+      setSavedAt(Date.now());
+    } catch {
+      setSaveError(NOT_STORED);
+    } finally {
+      setBusy(null);
+    }
   }
 
   return (
@@ -251,6 +259,7 @@ export function Goals() {
             <span className="text-sm text-brand-700 dark:text-brand-400">Saved.</span>
           ) : null}
         </div>
+        {saveError ? <Notice tone="error">{saveError}</Notice> : null}
       </section>
     </>
   );
