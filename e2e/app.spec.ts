@@ -454,3 +454,161 @@ test("syncs meals and goals between two devices through GitHub", async ({ browse
   await expect(laptop.getByText("of 1850 kcal")).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+/** Every record of a database, as text: strings as they are, bytes decoded. */
+async function dump(page: Page, name: string): Promise<string> {
+  return page.evaluate(
+    (dbName) =>
+      new Promise<string>((resolve, reject) => {
+        const req = indexedDB.open(dbName);
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const db = req.result;
+          const stores = [...db.objectStoreNames];
+          if (stores.length === 0) return resolve("");
+          const tx = db.transaction(stores);
+          const out: string[] = [];
+          const text = (v: unknown): string => {
+            if (v instanceof ArrayBuffer || ArrayBuffer.isView(v)) {
+              const bytes =
+                v instanceof ArrayBuffer
+                  ? new Uint8Array(v)
+                  : new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
+              return new TextDecoder().decode(bytes);
+            }
+            if (v && typeof v === "object") return Object.values(v).map(text).join(" ");
+            return String(v);
+          };
+          for (const s of stores) {
+            const all = tx.objectStore(s).getAll();
+            all.onsuccess = () => out.push(...all.result.map(text));
+          }
+          tx.oncomplete = () => {
+            db.close();
+            resolve(out.join("\n"));
+          };
+        };
+      }),
+    name,
+  );
+}
+
+test("the GitHub token is sealed at rest, and forgotten on disconnect", async ({ page }) => {
+  const errors: string[] = [];
+  await offline(page, errors);
+  await mockGitHub()(page);
+  await connectGitHub(page);
+  await expect(page.getByText(/Last synced/)).toBeVisible();
+  for (const db of ["calorie-ai-tracker", "calorie-ai-tracker-sealed"]) {
+    expect(await dump(page, db)).not.toContain("github_pat_test");
+  }
+  expect(await dump(page, "calorie-ai-tracker-sealed")).not.toBe("");
+
+  await page.reload();
+  await expect(page.getByText(/Last synced/)).toBeVisible();
+  await page.getByRole("button", { name: "Disconnect" }).click();
+  await expect(page.getByRole("button", { name: "Connect and sync" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Connect and sync" })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("a token sealed by an older version moves to the sealed store", async ({ page }) => {
+  const errors: string[] = [];
+  await offline(page, errors);
+  const seen: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().startsWith("https://api.github.com/") && r.method() !== "OPTIONS") {
+      seen.push(r.headers().authorization ?? "");
+    }
+  });
+  await mockGitHub()(page);
+  await page.goto("./#/settings");
+  await expect(page.getByRole("button", { name: "Connect and sync" })).toBeVisible();
+  // The layout before: the key and the sealed token in the app's own "meta" store.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const req = indexedDB.open("calorie-ai-tracker");
+        req.onerror = () => reject(req.error);
+        req.onsuccess = async () => {
+          const db = req.result;
+          const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, [
+            "encrypt",
+            "decrypt",
+          ]);
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const data = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv },
+            key,
+            new TextEncoder().encode("github_pat_test"),
+          );
+          const tx = db.transaction("meta", "readwrite");
+          tx.objectStore("meta").put(key, "crypto-key");
+          tx.objectStore("meta").put(
+            { repo: "me/calorie-data", path: "calorie-ai-tracker.json", token: { iv, data } },
+            "sync",
+          );
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
+
+  await page.reload();
+  await expect(page.getByText(/Last synced/)).toBeVisible();
+  expect(seen).toContain("Bearer github_pat_test");
+  const meta = await page.evaluate(
+    () =>
+      new Promise<{ keys: string[]; sync: Record<string, unknown> }>((resolve, reject) => {
+        const req = indexedDB.open("calorie-ai-tracker");
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const store = req.result.transaction("meta").objectStore("meta");
+          const keys = store.getAllKeys();
+          const sync = store.get("sync");
+          store.transaction.oncomplete = () => {
+            req.result.close();
+            resolve({ keys: keys.result.map(String), sync: sync.result });
+          };
+        };
+      }),
+  );
+  expect(meta.keys).not.toContain("crypto-key");
+  expect(meta.sync).not.toHaveProperty("token");
+  expect(meta.sync).toMatchObject({ repo: "me/calorie-data" });
+
+  // Still there after another load, from the sealed store this time.
+  seen.length = 0;
+  await page.reload();
+  await expect(page.getByText(/Last synced/)).toBeVisible();
+  expect(seen).toContain("Bearer github_pat_test");
+  expect(errors).toEqual([]);
+});
+
+test("a token the full storage could not keep: said, and not connected after a reload", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  await offline(page, errors);
+  await mockGitHub()(page);
+  await page.addInitScript(() => {
+    for (const method of ["put", "add"] as const) {
+      const original = IDBObjectStore.prototype[method];
+      IDBObjectStore.prototype[method] = function (this: IDBObjectStore, ...args) {
+        if (this.transaction.db.name === "calorie-ai-tracker-sealed") {
+          throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+        }
+        return original.apply(this, args as Parameters<typeof original>);
+      };
+    }
+  });
+  await connectGitHub(page);
+  await expect(page.getByText(/kept for this page only/)).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Connect and sync" })).toBeVisible();
+  expect(errors).toEqual([]);
+});

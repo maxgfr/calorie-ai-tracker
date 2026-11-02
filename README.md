@@ -65,7 +65,7 @@ week, and the coach. Recorded on the live site with Claude Haiku 5.5, answers in
   IndexedDB, in your browser. One button deletes them all from this device.
 - The API key is encrypted at rest under a non-extractable WebCrypto key (llm-connect's
   `secureStorage`), and kept for the tab only unless you choose to remember it. The GitHub token
-  is encrypted the same way.
+  is encrypted the same way (llm-connect's `sealedStore`).
 - The only things sent anywhere are your meal descriptions, photos, recordings and coach
   questions, to the AI provider you chose, and, when you turn sync on, your data to your GitHub
   repository. Nothing is analysed on the device. Web searches run on the provider's side, with its

@@ -97,10 +97,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await db.applySnapshot(merged);
         } while (again.current);
         const now = Date.now();
-        await db.saveSync(config, now);
+        const kept = await db.saveSync(config, now);
         await reload();
         setRevision((r) => r + 1);
-        setSync({ target: config, syncing: false, error: null, lastSync: now });
+        setSync({
+          target: config,
+          syncing: false,
+          error: kept ? null : db.STORED_FOR_PAGE,
+          lastSync: now,
+        });
         return true;
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
